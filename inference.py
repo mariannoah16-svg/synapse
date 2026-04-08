@@ -1,60 +1,19 @@
-Hugging Face's logo
-Hugging Face
-Models
-Datasets
-Spaces
-Buckets
-new
-Docs
-Enterprise
-Pricing
-
-
-Spaces:
-mariannoah
-/
-synapse
-
-
-like
-0
-
-Logs
-App
-Files
-Community
-Settings
-synapse
-/
-inference.py
-
-mariannoah's picture
-mariannoah
-Update inference.py
-3346e80
-verified
-about 1 hour ago
-raw
-
-Copy download link
-history
-blame
-edit
-delete
-14.7 kB
 """
 SYNAPSE — Inference Script (Final)
 ====================================
 Uses FREE HuggingFace Inference Router by default.
 No paid OpenAI API key needed.
+
 Required env vars:
   HF_TOKEN     — Free HuggingFace token (https://huggingface.co/settings/tokens)
   API_BASE_URL — Default: https://api-inference.huggingface.co/v1 (FREE)
   MODEL_NAME   — Default: meta-llama/Llama-3.1-8B-Instruct (FREE on HF)
   ENV_URL      — Default: http://localhost:7860
+
 Usage:
   python inference.py                    # pretty output
   python inference.py --mode api         # JSON for /baseline endpoint
+
 Fallback:
   If no HF_TOKEN set → rule-based agent scores ~0.35
   Proves environment works without any API key.
