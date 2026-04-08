@@ -21,7 +21,12 @@ from models import Action, Reward
 
 
 def _clamp(v: float) -> float:
-    return round(max(0.0, min(1.0, v)), 4)
+    """
+    Clamp score to strictly open interval (0.001, 0.999).
+    OpenEnv validator requires scores to be strictly between 0 and 1
+    — never exactly 0.0 or exactly 1.0.
+    """
+    return round(max(0.001, min(0.999, v)), 4)
 
 
 def _keywords(text: str) -> Set[str]:
@@ -158,25 +163,25 @@ def grade_task3(action: Action, gt: Dict) -> Reward:
 
     if agent_team == correct_team:
         return Reward(
-            score=1.0,
-            breakdown={"response_team": 1.0},
+            score=_clamp(1.0),          # 0.999 — strictly < 1.0
+            breakdown={"response_team": 0.999},
             feedback=f"✅ Correct team: {agent_team}",
         )
     elif agent_team in TEAMS and correct_team in TEAMS:
         dist    = abs(TEAMS.index(agent_team) - TEAMS.index(correct_team))
-        partial = 0.3 if dist == 1 else 0.0
+        partial = 0.3 if dist == 1 else 0.001   # never exactly 0.0
         return Reward(
-            score=partial,
-            breakdown={"response_team": partial},
+            score=_clamp(partial),
+            breakdown={"response_team": _clamp(partial)},
             feedback=(
-                f"{'⚠️ Adjacent team (+0.3)' if partial else '❌ Wrong team'}: "
+                f"{'⚠️ Adjacent team (+0.3)' if dist == 1 else '❌ Wrong team'}: "
                 f"got {agent_team}, expected {correct_team}"
             ),
         )
     else:
         return Reward(
-            score=0.0,
-            breakdown={"response_team": 0.0},
+            score=_clamp(0.0),          # 0.001 — strictly > 0.0
+            breakdown={"response_team": 0.001},
             feedback=f"❌ Wrong team: got {agent_team}, expected {correct_team}",
         )
 
@@ -214,8 +219,8 @@ def grade_task5(action: Action, gt: Dict) -> Reward:
 
     if not action.postmortem:
         return Reward(
-            score=0.0,
-            breakdown={"postmortem": 0.0},
+            score=_clamp(0.0),           # 0.001 — strictly > 0.0
+            breakdown={"postmortem": 0.001},
             feedback="❌ No postmortem provided",
         )
     pm = action.postmortem
