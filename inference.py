@@ -1,19 +1,60 @@
+Hugging Face's logo
+Hugging Face
+Models
+Datasets
+Spaces
+Buckets
+new
+Docs
+Enterprise
+Pricing
+
+
+Spaces:
+mariannoah
+/
+synapse
+
+
+like
+0
+
+Logs
+App
+Files
+Community
+Settings
+synapse
+/
+inference.py
+
+mariannoah's picture
+mariannoah
+Update inference.py
+3346e80
+verified
+about 1 hour ago
+raw
+
+Copy download link
+history
+blame
+edit
+delete
+14.7 kB
 """
 SYNAPSE — Inference Script (Final)
 ====================================
 Uses FREE HuggingFace Inference Router by default.
 No paid OpenAI API key needed.
-
 Required env vars:
   HF_TOKEN     — Free HuggingFace token (https://huggingface.co/settings/tokens)
   API_BASE_URL — Default: https://api-inference.huggingface.co/v1 (FREE)
   MODEL_NAME   — Default: meta-llama/Llama-3.1-8B-Instruct (FREE on HF)
   ENV_URL      — Default: http://localhost:7860
-
 Usage:
   python inference.py                    # pretty output
   python inference.py --mode api         # JSON for /baseline endpoint
-
 Fallback:
   If no HF_TOKEN set → rule-based agent scores ~0.35
   Proves environment works without any API key.
@@ -281,6 +322,9 @@ def main():
     if args.mode == "pretty":
         print(f"\n  SYNAPSE — Baseline Inference ({agent_mode})")
         print("  " + "="*55)
+        
+        # --- REQUIRED BY SCALER HACKATHON ---
+        print("[START]") 
 
     for tid in TASK_IDS:
         score, feedback, elapsed = run_task(tid, seed=args.seed)
@@ -290,8 +334,12 @@ def main():
             "elapsed_seconds": round(elapsed, 2),
         }
         total_t += elapsed
+        
         if args.mode == "pretty":
             print(f"  {NAMES[tid]}: {score:.4f}  ({elapsed:.1f}s)")
+            
+            # --- REQUIRED BY SCALER HACKATHON ---
+            print(f"[STEP] task_id={tid} score={score}")
 
     avg = round(sum(r["score"] for r in results.values()) / len(results), 4)
     results["average"]               = avg
@@ -310,6 +358,9 @@ def main():
             print(f"\n  ⚠️  Set HF_TOKEN env var for LLM-based inference.")
             print(f"  Get free token: https://huggingface.co/settings/tokens")
         print("  " + "="*55 + "\n")
+        
+        # --- REQUIRED BY SCALER HACKATHON ---
+        print("[END]")
 
 
 if __name__ == "__main__":
