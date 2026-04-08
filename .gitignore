@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# PyCharm
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# uv
+.uv/
+uv.lock
+
+# Environment variables (never commit secrets!)
+.env
+.env.local
+*.env
+
+# Logs
+*.log
+logs/
+
+# Docker
+.dockerignore

@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🧠 SYNAPSE — AI Model Incident Response</title>
+<style>
+  :root {
+    --bg:      #0a0e1a;
+    --card:    #0f1629;
+    --border:  #1e2d4a;
+    --blue:    #3b82f6;
+    --cyan:    #06b6d4;
+    --green:   #10b981;
+    --yellow:  #f59e0b;
+    --red:     #ef4444;
+    --purple:  #8b5cf6;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --font:    'Courier New', monospace;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    padding: 20px;
+  }
+
+  /* ── Header ── */
+  .header {
+    text-align: center;
+    padding: 30px 20px 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .header h1 {
+    font-size: 2.2rem;
+    background: linear-gradient(135deg, var(--cyan), var(--blue), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 4px;
+    margin-bottom: 6px;
+  }
+  .header .subtitle {
+    color: var(--muted);
+    font-size: 0.85rem;
+    letter-spacing: 2px;
+  }
+  .header .badges {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.72rem;
+    letter-spacing: 1px;
+  }
+  .badge-blue   { background: rgba(59,130,246,0.15); color: var(--blue);   border: 1px solid rgba(59,130,246,0.3); }
+  .badge-green  { background: rgba(16,185,129,0.15); color: var(--green);  border: 1px solid rgba(16,185,129,0.3); }
+  .badge-purple { background: rgba(139,92,246,0.15); color: var(--purple); border: 1px solid rgba(139,92,246,0.3); }
+  .badge-cyan   { background: rgba(6,182,212,0.15);  color: var(--cyan);   border: 1px solid rgba(6,182,212,0.3); }
+
+  /* ── Grid ── */
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  @media(max-width:900px) { .grid-2,.grid-3 { grid-template-columns:1fr; } }
+
+  /* ── Card ── */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-title { font-size: 0.78rem; letter-spacing: 2px; color: var(--muted); }
+  .dot { width:8px; height:8px; border-radius:50%; }
+  .dot-red    { background: var(--red);    box-shadow: 0 0 6px var(--red); }
+  .dot-green  { background: var(--green);  box-shadow: 0 0 6px var(--green); }
+  .dot-yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+  .dot-blue   { background: var(--blue);   box-shadow: 0 0 6px var(--blue); }
+  .dot-pulse  { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── Metric bars ── */
+  .metric { margin-bottom: 12px; }
+  .metric-row { display:flex; justify-content:space-between; margin-bottom:4px; font-size:0.78rem; }
+  .metric-label { color: var(--muted); }
+  .metric-value { font-weight: bold; }
+  .bar-track { height:6px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden; }
+  .bar-fill  { height:100%; border-radius:3px; transition: width 0.8s ease; }
+  .bar-red    { background: linear-gradient(90deg, #ef4444, #f87171); }
+  .bar-green  { background: linear-gradient(90deg, #10b981, #34d399); }
+  .bar-yellow { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+  .bar-blue   { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+  .bar-purple { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+
+  /* ── Severity badge ── */
+  .severity {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+  }
+  .sev-critical { background:rgba(239,68,68,0.2);  color:var(--red);    border:1px solid rgba(239,68,68,0.4); }
+  .sev-high     { background:rgba(245,158,11,0.2); color:var(--yellow); border:1px solid rgba(245,158,11,0.4); }
+  .sev-medium   { background:rgba(59,130,246,0.2); color:var(--blue);   border:1px solid rgba(59,130,246,0.4); }
+  .sev-low      { background:rgba(16,185,129,0.2); color:var(--green);  border:1px solid rgba(16,185,129,0.4); }
+
+  /* ── Buttons ── */
+  .btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    font-family: var(--font);
+    font-size: 0.82rem;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn:disabled { opacity:0.4; cursor:not-allowed; }
+  .btn-primary { background: linear-gradient(135deg,var(--blue),var(--cyan)); color:#fff; }
+  .btn-primary:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 4px 15px rgba(59,130,246,0.4); }
+  .btn-success { background: linear-gradient(135deg,var(--green),#34d399); color:#fff; }
+  .btn-success:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 4px 15px rgba(16,185,129,0.4); }
+  .btn-danger  { background: linear-gradient(135deg,var(--red),#f87171); color:#fff; }
+  .btn-ghost   { background:transparent; color:var(--muted); border:1px solid var(--border); }
+  .btn-ghost:hover { border-color:var(--blue); color:var(--blue); }
+
+  /* ── Score ring ── */
+  .score-ring { position:relative; display:inline-flex; align-items:center; justify-content:center; }
+  .score-ring svg { transform:rotate(-90deg); }
+  .score-ring .score-text {
+    position:absolute; text-align:center;
+    font-size:1.4rem; font-weight:bold;
+  }
+  .score-ring .score-label { font-size:0.6rem; color:var(--muted); display:block; }
+
+  /* ── Log lines ── */
+  .log-line {
+    font-size: 0.74rem;
+    padding: 6px 10px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    border-left: 3px solid;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .log-error  { background:rgba(239,68,68,0.08);  border-color:var(--red);    color:#fca5a5; }
+  .log-warn   { background:rgba(245,158,11,0.08); border-color:var(--yellow); color:#fcd34d; }
+  .log-info   { background:rgba(59,130,246,0.08); border-color:var(--blue);   color:#93c5fd; }
+  .log-normal { background:rgba(255,255,255,0.03);border-color:var(--border); color:var(--text); }
+
+  /* ── Task selector ── */
+  .task-btn {
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--font);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .task-btn:hover  { border-color:var(--blue); color:var(--blue); }
+  .task-btn.active { border-color:var(--cyan); color:var(--cyan); background:rgba(6,182,212,0.1); }
+
+  /* ── Status indicator ── */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16,185,129,0.2);
+    border-radius: 6px;
+    font-size: 0.76rem;
+    color: var(--green);
+    margin-bottom: 16px;
+  }
+
+  /* ── Alert box ── */
+  .alert-box {
+    padding: 12px 14px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    margin-bottom: 12px;
+    border-left: 4px solid;
+  }
+  .alert-critical { background:rgba(239,68,68,0.1);  border-color:var(--red);    color:#fca5a5; }
+  .alert-high     { background:rgba(245,158,11,0.1); border-color:var(--yellow); color:#fcd34d; }
+  .alert-info     { background:rgba(59,130,246,0.1); border-color:var(--blue);   color:#93c5fd; }
+
+  /* ── Code block ── */
+  .code-block {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 0.72rem;
+    line-height: 1.6;
+    overflow-x: auto;
+    color: #a5f3fc;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ── Tabs ── */
+  .tabs { display:flex; gap:4px; margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:8px; flex-wrap:wrap; }
+  .tab { padding:5px 12px; font-size:0.74rem; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; transition:all 0.2s; }
+  .tab.active { color:var(--cyan); border-bottom-color:var(--cyan); }
+  .tab-content { display:none; }
+  .tab-content.active { display:block; }
+
+  /* ── Epoch chart ── */
+  .epoch-row {
+    display:flex; align-items:center; gap:8px;
+    margin-bottom:6px; font-size:0.72rem;
+  }
+  .epoch-label { width:60px; color:var(--muted); flex-shrink:0; }
+  .epoch-bar   { flex:1; height:16px; background:rgba(255,255,255,0.04); border-radius:3px; overflow:hidden; position:relative; }
+  .epoch-fill  { height:100%; border-radius:3px; display:flex; align-items:center; padding-left:6px; font-size:0.65rem; font-weight:bold; min-width:40px; }
+  .epoch-nan   { background:rgba(239,68,68,0.3); color:var(--red); font-size:0.65rem; display:flex; align-items:center; padding-left:6px; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width:4px; height:4px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+  /* ── Footer ── */
+  .footer { text-align:center; padding:20px; color:var(--muted); font-size:0.7rem; margin-top:24px; }
+
+  /* ── Loading ── */
+  .spin { display:inline-block; animation:spin 1s linear infinite; }
+  @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
+  /* ── Endpoint pill ── */
+  .endpoint {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:4px 10px; border-radius:4px; font-size:0.72rem;
+    margin:3px; background:rgba(255,255,255,0.04); border:1px solid var(--border);
+  }
+  .method-get  { color:#10b981; font-weight:bold; }
+  .method-post { color:#3b82f6; font-weight:bold; }
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<div class="header">
+  <h1>⬡ SYNAPSE</h1>
+  <div class="subtitle">SYSTEMATIC NEURAL ANALYSIS AND PRODUCTION SUPERVISION ENVIRONMENT</div>
+  <div class="badges">
+    <span class="badge badge-blue">OPENENV COMPLIANT</span>
+    <span class="badge badge-green">12 FAILURE MODES</span>
+    <span class="badge badge-purple">CURRICULUM LEARNING</span>
+    <span class="badge badge-cyan">MULTI-TURN INVESTIGATION</span>
+  </div>
+</div>
+
+<!-- ── STATUS ── -->
+<div class="status-bar" id="statusBar">
+  <div class="dot dot-green dot-pulse"></div>
+  <span>SYNAPSE server online — ready to simulate incidents</span>
+</div>
+
+<!-- ── CONTROLS ── -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <div class="dot dot-blue"></div>
+    <span class="card-title">INCIDENT SIMULATOR CONTROLS</span>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <span class="card-title" style="align-self:center">SELECT TASK:</span>
+    <button class="task-btn active" onclick="selectTask('task1')">TASK 1 — Signal Monitor</button>
+    <button class="task-btn" onclick="selectTask('task2')">TASK 2 — Root Cause</button>
+    <button class="task-btn" onclick="selectTask('task3')">TASK 3 — Priority</button>
+    <button class="task-btn" onclick="selectTask('task4')">TASK 4 — Remediation</button>
+    <button class="task-btn" onclick="selectTask('task5')">TASK 5 — Post-Mortem</button>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <button class="btn btn-primary" onclick="startIncident()" id="btnReset">
+      ⚡ GENERATE INCIDENT
+    </button>
+    <a href="/docs" target="_blank" class="btn btn-ghost">📖 API DOCS</a>
+    <a href="/tasks" target="_blank" class="btn btn-ghost">📋 VIEW TASKS</a>
+  </div>
+</div>
+
+<!-- ── MAIN GRID ── -->
+<div class="grid grid-2" id="mainGrid" style="display:none">
+
+  <!-- LEFT: Incident Details -->
+  <div>
+
+    <!-- Alert -->
+    <div class="card" style="margin-bottom:16px" id="alertCard">
+      <div class="card-header">
+        <div class="dot dot-red dot-pulse" id="alertDot"></div>
+        <span class="card-title">INCIDENT ALERT</span>
+        <span class="severity sev-critical" id="severityBadge">CRITICAL</span>
+      </div>
+      <div class="alert-box alert-critical" id="alertText">Loading...</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <span style="font-size:0.75rem;color:var(--muted)">ARCHITECTURE:</span>
+        <span style="font-size:0.75rem" id="archLabel">—</span>
+        <span style="font-size:0.75rem;color:var(--muted);margin-left:10px">TASK:</span>
+        <span style="font-size:0.75rem;color:var(--cyan)" id="taskLabel">—</span>
+      </div>
+    </div>
+
+    <!-- Production Metrics -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="dot dot-yellow"></div>
+        <span class="card-title">PRODUCTION METRICS</span>
+      </div>
+      <div class="metric">
+        <div class="metric-row"><span class="metric-label">ACCURACY</span><span class="metric-value" id="mAccuracy">—</span></div>
+        <div class="bar-track"><div class="bar-fill bar-green" id="bAccuracy" style="width:0%"></div></div>
+      </div>
+      <div class="metric">
+        <div class="metric-row"><span class="metric-label">ERROR RATE</span><span class="metric-value" id="mError">—</span></div>
+        <div class="bar-track"><div class="bar-fill bar-red" id="bError" style="width:0%"></div></div>
+      </div>
+      <div class="metric">
+        <div class="metric-row"><span class="metric-label">GPU MEMORY</span><span class="metric-value" id="mGPU">—</span></div>
+        <div class="bar-track"><div class="bar-fill bar-yellow" id="bGPU" style="width:0%"></div></div>
+      </div>
+      <div class="metric">
+        <div class="metric-row"><span class="metric-label">DRIFT SCORE</span><span class="metric-value" id="mDrift">—</span></div>
+        <div class="bar-track"><div class="bar-fill bar-purple" id="bDrift" style="width:0%"></div></div>
+      </div>
+      <div class="metric" style="margin-bottom:0">
+        <div class="metric-row"><span class="metric-label">HALLUCINATION RATE</span><span class="metric-value" id="mHalluc">—</span></div>
+        <div class="bar-track"><div class="bar-fill bar-blue" id="bHalluc" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <!-- Training Logs -->
+    <div class="card">
+      <div class="card-header">
+        <div class="dot dot-blue"></div>
+        <span class="card-title">PYTORCH TRAINING LOGS</span>
+      </div>
+      <div id="trainingLogs" style="max-height:200px;overflow-y:auto">
+        <div class="log-line log-info">Waiting for incident data...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT: Diagnosis + Score -->
+  <div>
+
+    <!-- Model Config -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="dot dot-purple"></div>
+        <span class="card-title">MODEL CONFIGURATION</span>
+      </div>
+      <div class="tabs">
+        <div class="tab active" onclick="showTab('config')">CONFIG</div>
+        <div class="tab" onclick="showTab('errors')">ERRORS</div>
+        <div class="tab" onclick="showTab('deployments')">DEPLOYMENTS</div>
+      </div>
+      <div class="tab-content active" id="tab-config">
+        <div id="configContent" class="code-block">Loading...</div>
+      </div>
+      <div class="tab-content" id="tab-errors">
+        <div id="errorsContent">
+          <div class="log-line log-info">No errors loaded yet.</div>
+        </div>
+      </div>
+      <div class="tab-content" id="tab-deployments">
+        <div id="deploysContent">
+          <div class="log-line log-info">No deployment history loaded yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Score Display -->
+    <div class="card" style="margin-bottom:16px" id="scoreCard">
+      <div class="card-header">
+        <div class="dot dot-green"></div>
+        <span class="card-title">GRADER RESULT</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:20px" id="scoreDisplay">
+        <div class="score-ring">
+          <svg width="100" height="100" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="8"/>
+            <circle cx="50" cy="50" r="42" fill="none" stroke="var(--cyan)" stroke-width="8"
+              stroke-dasharray="264" stroke-dashoffset="264" id="scoreCircle"
+              stroke-linecap="round" style="transition:stroke-dashoffset 1s ease"/>
+          </svg>
+          <div class="score-text">
+            <span id="scoreNum">—</span>
+            <span class="score-label">SCORE</span>
+          </div>
+        </div>
+        <div style="flex:1">
+          <div id="scoreFeedback" style="font-size:0.75rem;color:var(--muted);line-height:1.8">
+            Run an incident to see grader results.
+          </div>
+          <div id="scoreBreakdown" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Test -->
+    <div class="card">
+      <div class="card-header">
+        <div class="dot dot-cyan"></div>
+        <span class="card-title">QUICK AGENT TEST</span>
+      </div>
+      <div id="actionArea" style="margin-bottom:12px">
+        <div style="color:var(--muted);font-size:0.78rem">Generate an incident first to see the action interface.</div>
+      </div>
+      <button class="btn btn-success" onclick="submitAction()" id="btnSubmit" disabled>
+        ▶ SUBMIT AGENT ACTION
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── ENDPOINTS REFERENCE ── -->
+<div class="card" style="margin-top:16px">
+  <div class="card-header">
+    <div class="dot dot-cyan"></div>
+    <span class="card-title">API ENDPOINTS</span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:4px">
+    <span class="endpoint"><span class="method-get">GET</span>/health</span>
+    <span class="endpoint"><span class="method-post">POST</span>/reset</span>
+    <span class="endpoint"><span class="method-post">POST</span>/step</span>
+    <span class="endpoint"><span class="method-get">GET</span>/state</span>
+    <span class="endpoint"><span class="method-get">GET</span>/tasks</span>
+    <span class="endpoint"><span class="method-get">GET</span>/grader</span>
+    <span class="endpoint"><span class="method-get">GET</span>/baseline</span>
+    <span class="endpoint"><span class="method-post">POST</span>/train</span>
+    <span class="endpoint"><span class="method-get">GET</span>/analytics</span>
+    <span class="endpoint"><span class="method-get">GET</span>/curriculum</span>
+    <span class="endpoint"><span class="method-get">GET</span>/generate</span>
+    <span class="endpoint"><span class="method-get">GET</span>/docs</span>
+  </div>
+</div>
+
+<div class="footer">
+  🧠 SYNAPSE v5.0 — OpenEnv Hackathon 2026 | Meta × PyTorch × Scaler | Team: Hive Mind<br>
+  12 Failure Modes · 10 Architectures · Curriculum Learning · Multi-Turn Investigation
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let currentObs  = null;
+let currentTask = 'task1';
+const BASE      = window.location.origin;
+
+// ── Task selector ──────────────────────────────────────────────────────────
+function selectTask(taskId) {
+  currentTask = taskId;
+  document.querySelectorAll('.task-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+
+// ── Start Incident ─────────────────────────────────────────────────────────
+async function startIncident() {
+  const btn = document.getElementById('btnReset');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin">↻</span> GENERATING...';
+
+  try {
+    const r = await fetch(BASE+'/reset', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({task_id: currentTask, use_generated: true})
+    });
+    const data = await r.json();
+    currentObs = data.observation;
+    renderIncident(currentObs);
+    document.getElementById('mainGrid').style.display = 'grid';
+
+    // Reset score
+    document.getElementById('scoreNum').textContent = '—';
+    document.getElementById('scoreCircle').style.strokeDashoffset = '264';
+    document.getElementById('scoreFeedback').textContent = 'Submit an action to see results.';
+    document.getElementById('scoreBreakdown').innerHTML = '';
+    document.getElementById('btnSubmit').disabled = false;
+
+  } catch(e) {
+    setStatus('⚠️ Could not connect to SYNAPSE server: '+e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '⚡ GENERATE INCIDENT';
+}
+
+// ── Render Incident ────────────────────────────────────────────────────────
+function renderIncident(obs) {
+  const m = obs.production_metrics || {};
+  const cfg = obs.training_config || {};
+
+  // Alert
+  document.getElementById('alertText').textContent = obs.alert_summary || '—';
+  document.getElementById('archLabel').textContent = cfg.architecture || '—';
+  document.getElementById('taskLabel').textContent = obs.task_id?.toUpperCase() || '—';
+
+  // Severity
+  const sev = determineSeverity(m);
+  const sevEl = document.getElementById('severityBadge');
+  sevEl.textContent = sev.toUpperCase();
+  sevEl.className = 'severity sev-'+sev.toLowerCase();
+
+  // Update alert class
+  const alertBox = document.getElementById('alertText');
+  alertBox.className = 'alert-box alert-'+
+    (sev==='critical'||sev==='high' ? (sev==='critical'?'critical':'high') : 'info');
+
+  // Metrics
+  const acc = Math.round((m.accuracy||0)*100);
+  const err = Math.round((m.error_rate||0)*100);
+  const gpu = m.gpu_memory_total_gb > 0
+    ? Math.round((m.gpu_memory_used_gb/m.gpu_memory_total_gb)*100) : 0;
+  const drift  = Math.round((m.drift_score||0)*100);
+  const halluc = Math.round((m.hallucination_rate||0)*100);
+
+  document.getElementById('mAccuracy').textContent = acc+'%';
+  document.getElementById('mError').textContent    = err+'%';
+  document.getElementById('mGPU').textContent      =
+    (m.gpu_memory_used_gb||0).toFixed(1)+'/'+(m.gpu_memory_total_gb||16)+'GB';
+  document.getElementById('mDrift').textContent    = (m.drift_score||0).toFixed(2);
+  document.getElementById('mHalluc').textContent   = halluc+'%';
+
+  setTimeout(()=>{
+    document.getElementById('bAccuracy').style.width = acc+'%';
+    document.getElementById('bError').style.width    = err+'%';
+    document.getElementById('bGPU').style.width      = gpu+'%';
+    document.getElementById('bDrift').style.width    = drift+'%';
+    document.getElementById('bHalluc').style.width   = halluc+'%';
+  }, 100);
+
+  // Training logs
+  const logs = obs.training_logs || [];
+  const logsEl = document.getElementById('trainingLogs');
+  if (logs.length === 0) {
+    logsEl.innerHTML = '<div class="log-line log-info">No training logs available for this phase.</div>';
+  } else {
+    logsEl.innerHTML = logs.map(l => {
+      const hasErr  = l.error;
+      const hasWarn = l.warning;
+      const cls     = hasErr ? 'log-error' : hasWarn ? 'log-warn' : 'log-normal';
+      const lossStr = l.train_loss !== null && l.train_loss !== undefined
+        ? (isNaN(l.train_loss) ? '<span style="color:var(--red)">NaN</span>' : l.train_loss)
+        : '<span style="color:var(--red)">—</span>';
+      return `<div class="log-line ${cls}">
+        Epoch ${l.epoch}/${l.total_epochs} | loss=${lossStr} acc=${l.train_acc ?? '—'}% lr=${l.learning_rate}
+        ${hasWarn ? '<br>⚠️ '+l.warning : ''}
+        ${hasErr  ? '<br>❌ '+l.error   : ''}
+      </div>`;
+    }).join('');
+  }
+
+  // Config tab
+  document.getElementById('configContent').textContent =
+    'architecture:   ' + (cfg.architecture||'—') + '\n' +
+    'optimizer:      ' + (cfg.optimizer||'—') + '\n' +
+    'learning_rate:  ' + (cfg.learning_rate||'—') + '\n' +
+    'batch_size:     ' + (cfg.batch_size||'—') + '\n' +
+    'dropout:        ' + (cfg.dropout||'—') + '\n' +
+    'weight_decay:   ' + (cfg.weight_decay||'—') + '\n' +
+    'gradient_clip:  ' + (cfg.gradient_clip ?? 'None') + '\n' +
+    'pytorch_ver:    ' + (obs.pytorch_version||'—') + '\n' +
+    'cuda_version:   ' + (obs.cuda_version||'N/A');
+
+  // Errors tab
+  const errors = obs.error_traces || [];
+  document.getElementById('errorsContent').innerHTML = errors.length === 0
+    ? '<div class="log-line log-info">No error traces.</div>'
+    : errors.map(e =>
+        `<div class="log-line log-error">
+          [${e.error_type}] in ${e.pytorch_component}<br>
+          ${e.message}
+        </div>`
+      ).join('');
+
+  // Deployments tab
+  const deploys = obs.deployment_history || [];
+  document.getElementById('deploysContent').innerHTML = deploys.length === 0
+    ? '<div class="log-line log-info">No deployment history.</div>'
+    : deploys.map(d =>
+        `<div class="log-line ${d.event_type==='deploy'?'log-warn':'log-info'}">
+          [${d.event_type?.toUpperCase()}] ${d.version} at ${d.timestamp}<br>
+          ${d.description}
+        </div>`
+      ).join('');
+
+  // Action area
+  renderActionArea(obs.task_id);
+
+  // Hint
+  if (obs.hint) {
+    setStatus('💡 HINT: '+obs.hint, 'hint');
+  } else {
+    setStatus('✅ Incident loaded — submit an action to test the grader', 'ok');
+  }
+}
+
+// ── Action Area ────────────────────────────────────────────────────────────
+function renderActionArea(taskId) {
+  const el = document.getElementById('actionArea');
+  const templates = {
+    task1: `{
+  "anomaly_detected": true,
+  "anomaly_type": "nan_loss",
+  "severity": "critical"
+}`,
+    task2: `{
+  "root_cause": "learning_rate_too_high",
+  "affected_components": ["optimizer", "loss_function"]
+}`,
+    task3: `{
+  "priority_ranking": ["model-prod"],
+  "response_team": "ml_team"
+}`,
+    task4: `{
+  "immediate_steps": ["stop training", "revert learning rate"],
+  "root_fix_steps": ["add gradient clipping", "use lr scheduler", "restart training"],
+  "verification_steps": ["verify loss decreasing", "verify gradient norm below 10"]
+}`,
+    task5: `{
+  "postmortem": {
+    "root_cause": "learning_rate_too_high",
+    "affected_components": ["optimizer", "loss_function"],
+    "prevention_steps": ["add lr scheduler", "add gradient clipping"],
+    "monitoring_additions": ["nan loss alert", "gradient norm monitor"]
+  }
+}`,
+  };
+  el.innerHTML = `
+    <div style="font-size:0.75rem;color:var(--muted);margin-bottom:8px">
+      AGENT ACTION — edit and submit:
+    </div>
+    <textarea id="actionInput" style="
+      width:100%; height:140px; background:rgba(0,0,0,0.3);
+      border:1px solid var(--border); border-radius:6px;
+      color:var(--text); font-family:var(--font); font-size:0.72rem;
+      padding:10px; resize:vertical; outline:none;
+    ">${templates[taskId] || '{}'}</textarea>
+  `;
+}
+
+// ── Submit Action ──────────────────────────────────────────────────────────
+async function submitAction() {
+  const btn = document.getElementById('btnSubmit');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin">↻</span> GRADING...';
+
+  try {
+    const raw    = document.getElementById('actionInput').value;
+    const action = JSON.parse(raw);
+
+    const r = await fetch(BASE+'/step', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({action})
+    });
+    const data = await r.json();
+    renderScore(data.reward);
+    setStatus('✅ Action submitted — grader result below', 'ok');
+
+  } catch(e) {
+    setStatus('❌ Error: '+(e.message||'invalid JSON or server error'), 'error');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '▶ SUBMIT AGENT ACTION';
+}
+
+// ── Render Score ───────────────────────────────────────────────────────────
+function renderScore(reward) {
+  const score    = reward.score || 0;
+  const pct      = Math.round(score * 100);
+  const offset   = 264 - (264 * score);
+  const circle   = document.getElementById('scoreCircle');
+  const color    = score >= 0.8 ? 'var(--green)' : score >= 0.5 ? 'var(--yellow)' : 'var(--red)';
+
+  circle.style.stroke = color;
+  circle.style.strokeDashoffset = offset;
+  document.getElementById('scoreNum').textContent = pct+'%';
+  document.getElementById('scoreNum').style.color  = color;
+
+  // Feedback
+  document.getElementById('scoreFeedback').innerHTML =
+    (reward.feedback || '').split(' | ').map(part =>
+      `<div>${part}</div>`
+    ).join('');
+
+  // Breakdown bars
+  const bd = reward.breakdown || {};
+  document.getElementById('scoreBreakdown').innerHTML =
+    Object.entries(bd).map(([k,v]) => {
+      const pv = Math.round(Math.abs(v)*100);
+      const neg = v < 0;
+      return `<div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+        <span style="font-size:0.65rem;color:var(--muted);width:130px;flex-shrink:0">${k}</span>
+        <div style="flex:1;height:4px;background:rgba(255,255,255,0.06);border-radius:2px">
+          <div style="width:${pv}%;height:100%;background:${neg?'var(--red)':color};border-radius:2px"></div>
+        </div>
+        <span style="font-size:0.65rem;color:${neg?'var(--red)':color};width:36px;text-align:right">${v>0?'+':''}${v}</span>
+      </div>`;
+    }).join('');
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function determineSeverity(m) {
+  const er = m.error_rate || 0;
+  if (er >= 0.8 || (m.accuracy !== undefined && m.accuracy === 0)) return 'critical';
+  if (er >= 0.3 || (m.gpu_memory_used_gb/m.gpu_memory_total_gb) >= 0.95) return 'critical';
+  if (er >= 0.1 || (m.drift_score||0) >= 0.7) return 'high';
+  if (er >= 0.05) return 'medium';
+  return 'low';
+}
+
+function setStatus(msg, type) {
+  const el = document.getElementById('statusBar');
+  const colors = {ok:'var(--green)', error:'var(--red)', hint:'var(--yellow)', info:'var(--cyan)'};
+  el.style.color = colors[type] || colors.ok;
+  el.style.borderColor = (colors[type]||colors.ok).replace('var','').replace('(','rgba(').replace(')','0.2)');
+  el.style.background  = (colors[type]||colors.ok).replace('var','').replace('(','rgba(').replace(')','0.08)');
+  el.innerHTML = `<div class="dot dot-pulse" style="background:${colors[type]||colors.ok}"></div><span>${msg}</span>`;
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+window.addEventListener('load', async () => {
+  try {
+    const r = await fetch(BASE+'/health');
+    const d = await r.json();
+    setStatus('✅ '+d.environment+' v'+d.version+' — server online', 'ok');
+  } catch(e) {
+    setStatus('⚠️ Server connecting...', 'error');
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+name: synapse
+version: "2.0.0"
+description: >
+  SYNAPSE (Systematic Neural Analysis and Production Supervision Environment)
+  is an OpenEnv-compliant environment for training AI agents to detect,
+  diagnose, and remediate AI model failures in production.
+  Powered by authentic PyTorch incident data.
+
+author: hive-mind-team
+license: MIT
+tags:
+  - openenv
+  - pytorch
+  - mlops
+  - production-ai
+  - incident-response
+  - real-world
+
+tasks:
+  - id: task1
+    name: Signal Monitor
+    difficulty: easy
+    expected_baseline_score: 0.85
+    description: >
+      Detect anomaly type and severity from PyTorch training logs
+      and production metrics. Signal present in training log errors/warnings
+      and production accuracy/drift numbers.
+
+  - id: task2
+    name: Root Cause Engine
+    difficulty: medium
+    expected_baseline_score: 0.70
+    description: >
+      Diagnose root cause from PyTorch error traces, model config,
+      and training log patterns. Identify affected PyTorch components.
+
+  - id: task3
+    name: Priority Classifier
+    difficulty: medium-hard
+    expected_baseline_score: 0.65
+    description: >
+      Classify incident urgency and assign correct engineering team
+      (ml_team, ai_team, devops_team, or all_hands).
+
+  - id: task4
+    name: Remediation Planner
+    difficulty: hard
+    expected_baseline_score: 0.50
+    description: >
+      Produce a 3-phase remediation plan with immediate actions,
+      root fix steps, and verification steps.
+
+  - id: task5
+    name: Post-Mortem Analyst
+    difficulty: very-hard
+    expected_baseline_score: 0.40
+    description: >
+      Write a structured post-mortem identifying root cause,
+      affected components, prevention steps, and monitoring additions.
+      Graded deterministically against structured template — no free text.
+
+observation_space:
+  task_id: "str — task1 to task5"
+  step: "int — current step number"
+  max_steps: "int — 10"
+  pytorch_version: "str — e.g. 2.1.0"
+  cuda_version: "Optional[str] — e.g. 11.8"
+  model_config:
+    architecture: "str — ResNet50, BERT-Large, GPT2, etc"
+    optimizer: "str — Adam, AdamW, SGD"
+    learning_rate: "float"
+    batch_size: "int"
+    epochs: "int"
+    dropout: "float"
+    weight_decay: "float"
+    gradient_clip: "Optional[float]"
+    scheduler: "Optional[str]"
+  training_logs: "list[PyTorchTrainingLog] — epoch, loss, acc, warnings, errors"
+  production_metrics: "ProductionMetrics — accuracy, error_rate, drift_score, latency, gpu_memory"
+  error_traces: "list[ErrorTrace] — error_type, message, pytorch_component"
+  deployment_history: "list[DeploymentEvent] — event_type, version, description"
+  alert_summary: "str — plain English incident description"
+  hint: "Optional[str] — only in task1 (easy)"
+
+action_space:
+  task1:
+    anomaly_detected: "bool"
+    anomaly_type: "nan_loss | loss_spike | accuracy_drop | gpu_oom | data_drift | latency_spike | hallucination_spike | gradient_explosion | memory_leak | none"
+    severity: "low | medium | high | critical"
+  task2:
+    root_cause: "learning_rate_too_high | learning_rate_too_low | overfitting | underfitting | data_drift | quantization_error | prompt_injection | context_overflow | bad_deployment | class_imbalance | gradient_explosion | memory_leak"
+    affected_components: "list[str]"
+  task3:
+    priority_ranking: "list[str]"
+    response_team: "ml_team | ai_team | devops_team | all_hands"
+  task4:
+    immediate_steps: "list[str]"
+    root_fix_steps: "list[str]"
+    verification_steps: "list[str]"
+  task5:
+    postmortem:
+      root_cause: "str"
+      affected_components: "list[str]"
+      prevention_steps: "list[str]"
+      monitoring_additions: "list[str]"
+
+reward:
+  range: "[0.0, 1.0]"
+  partial_credit: true
+  deterministic: true
+  step_penalty: "-0.01 per step beyond step 1"
+  baseline_scores:
+    task1: 0.85
+    task2: 0.70
+    task3: 0.65
+    task4: 0.50
+    task5: 0.40
+    average: 0.62
+
+endpoints:
+  health:   "GET /health"
+  reset:    "POST /reset"
+  step:     "POST /step"
+  state:    "GET /state"
+  tasks:    "GET /tasks"
+  grader:   "GET /grader"
+  baseline: "GET /baseline"
+
+infrastructure:
+  port: 7860
+  max_inference_runtime_minutes: 20
+  min_vcpu: 2
+  min_memory_gb: 8
