@@ -253,11 +253,15 @@ def curriculum():
     return {"curriculum_enabled": True, **env._curriculum.get_stats()}
 
 # ── Entry point ───────────────────────────────────────────────────────────────
-def run():
-    """Entry point for 'uv run server'."""
+def main():
+    """Entry point for 'uv run server'. Must be named 'main' per OpenEnv spec."""
     import uvicorn
     port = int(os.getenv("PORT", "7860"))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 
+
+# Keep run as alias for backward compatibility
+run = main
+
 if __name__ == "__main__":
-    run()
+    main()
