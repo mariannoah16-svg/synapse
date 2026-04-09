@@ -1,281 +1,281 @@
 """
-SYNAPSE — Inference Script (Final, Validator-Compliant)
-=========================================================
-Emits [START], [STEP], [END] structured stdout logs.
-Required by OpenEnv validator Phase 2.
+SYNAPSE — Graders (Final, Validator-Compliant)
+================================================
+KEY RULE: All scores AND all breakdown values must be STRICTLY between 0 and 1.
+  Never exactly 0.0  → use 0.001 minimum everywhere
+  Never exactly 1.0  → use 0.999 maximum everywhere
+  No negative values in breakdown dict
 
-Uses FREE HuggingFace Inference Router by default.
-Falls back to rule-based agent when no token set.
+This is required by OpenEnv validator Phase 2.
+_clamp() enforces this on every single value returned.
+
+BUGS FIXED vs previous Gemini version:
+  1. task2 bd['components'] = round((0/n)*0.39) = 0.0 exactly → now max(0.001,...)
+  2. task5 bd['components'] = round(0.19*0)     = 0.0 exactly → now max(0.001,...)
+  3. task2 bd['component_penalty'] was negative  → removed, absorbed into components
+  4. _clamp enforced on EVERY breakdown value, not just final sum
 """
+import re
+from typing import Dict, List, Set
+from models import Action, Reward
 
-import argparse, json, os, re, sys, time
-import requests
-from openai import OpenAI
 
-# ── Config ────────────────────────────────────────────────────────────────────
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api-inference.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "meta-llama/Llama-3.1-8B-Instruct")
-HF_TOKEN     = os.getenv("HF_TOKEN", "")
-ENV_URL      = os.getenv("ENV_URL",      "http://localhost:7860")
-TASK_IDS     = ["task1", "task2", "task3", "task4", "task5"]
+def _clamp(v: float) -> float:
+    """
+    Clamp to strictly open interval (0.001, 0.999).
+    OpenEnv validator REJECTS scores of exactly 0.0 or exactly 1.0.
+    Called on EVERY value: final score AND every breakdown component.
+    """
+    return round(max(0.001, min(0.999, v)), 4)
 
-client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "no-key")
 
-SYSTEM = """You are a senior ML engineer. Diagnose AI model failures.
-Respond with ONLY valid JSON — no explanation, no markdown."""
-
-# ── Rule-based fallback ───────────────────────────────────────────────────────
-def _rule_based(task_id: str, obs: dict) -> dict:
-    """Returns valid action even with no API key. Scores ~0.35."""
-    logs    = obs.get("training_logs", [])
-    metrics = obs.get("production_metrics", {})
-    errors  = obs.get("error_traces", [])
-    cfg     = obs.get("training_config", {})
-    summary = obs.get("alert_summary", "").lower()
-
-    atype = "accuracy_drop"
-    for e in errors:
-        m = e.get("message", "").lower()
-        if "nan" in m:             atype = "nan_loss";          break
-        if "out of memory" in m:   atype = "gpu_oom";           break
-        if "gradient" in m:        atype = "gradient_explosion"; break
-        if "sequence length" in m: atype = "hallucination_spike";break
-    for l in logs:
-        err = str(l.get("error", "")).lower()
-        if "nan"    in err: atype = "nan_loss";  break
-        if "memory" in err: atype = "gpu_oom";   break
-    if "hallucin"  in summary: atype = "hallucination_spike"
-    if "drift"     in summary: atype = "data_drift"
-
-    er  = metrics.get("error_rate", 0)
-    sev = ("critical" if er >= 0.8 or atype in ["nan_loss","gpu_oom","gradient_explosion"]
-           else "high"   if er >= 0.3
-           else "medium" if er >= 0.1
-           else "low")
-
-    lr      = cfg.get("learning_rate", 0.001)
-    opt     = cfg.get("optimizer", "Adam")
-    typical = {"Adam":0.001,"AdamW":0.0001,"SGD":0.01,"RMSprop":0.001}.get(opt, 0.001)
-    rc = "bad_deployment"
-    if atype == "nan_loss" and lr > typical * 5:   rc = "learning_rate_too_high"
-    elif atype == "gpu_oom":                        rc = "memory_leak"
-    elif atype == "gradient_explosion":             rc = "gradient_explosion"
-    elif atype == "data_drift":                     rc = "data_drift"
-    elif atype == "hallucination_spike":
-        rc = "context_overflow" if any("sequence" in str(e.get("message","")).lower() for e in errors) else "prompt_injection"
-    elif any("overfitting" in str(l.get("warning","")).lower() for l in logs): rc = "overfitting"
-    elif lr < typical * 0.01: rc = "learning_rate_too_low"
-
-    team = ("ai_team"     if rc in ["prompt_injection","context_overflow"]
-            else "devops_team" if rc == "bad_deployment"
-            else "ml_team")
-
-    COMP = {
-        "learning_rate_too_high": ["optimizer","loss_function"],
-        "learning_rate_too_low":  ["optimizer"],
-        "memory_leak":            ["dataloader","model"],
-        "gradient_explosion":     ["optimizer","model"],
-        "overfitting":            ["model","loss_function"],
-        "data_drift":             ["model"],
-        "bad_deployment":         ["model"],
-        "context_overflow":       ["model"],
-        "prompt_injection":       ["model"],
-        "class_imbalance":        ["model","loss_function"],
+def _keywords(text: str) -> Set[str]:
+    """Extract meaningful keywords — underscores normalized, numbers removed."""
+    STOP = {
+        "to","the","a","an","and","or","for","of","in","from","with","at","by",
+        "is","it","that","this","are","was","be","on","as","up","if","do","not",
+        "before","after","then","than","all","any","some","very","just","now",
+        "can","will","should","must","make","sure","check","verify","ensure",
+        "immediately","properly","correctly","please","your","our","my",
     }
-    comp = COMP.get(rc, ["model"])
-
-    if task_id == "task1":
-        return {"anomaly_detected": True, "anomaly_type": atype, "severity": sev}
-    elif task_id == "task2":
-        return {"root_cause": rc, "affected_components": comp}
-    elif task_id == "task3":
-        return {"priority_ranking": ["primary-model-prod"], "response_team": team}
-    elif task_id == "task4":
-        FIXES = {
-            "learning_rate_too_high": {
-                "immediate_steps":    ["stop training", "revert learning rate"],
-                "root_fix_steps":     ["add gradient clipping", "use learning rate scheduler", "restart training"],
-                "verification_steps": ["verify loss decreasing", "verify gradient norm below 10"],
-            },
-            "memory_leak": {
-                "immediate_steps":    ["stop training", "reduce batch size"],
-                "root_fix_steps":     ["enable gradient checkpointing", "use mixed precision fp16", "restart training"],
-                "verification_steps": ["verify gpu memory stable", "verify training completes"],
-            },
-            "overfitting": {
-                "immediate_steps":    ["rollback model", "disable current deployment"],
-                "root_fix_steps":     ["add dropout 0.3", "add weight decay 0.01", "retrain with early stopping"],
-                "verification_steps": ["verify train val gap below 5 percent", "verify accuracy above 80 percent"],
-            },
-        }
-        default = {
-            "immediate_steps":    ["stop current process", "assess damage"],
-            "root_fix_steps":     ["identify root cause", "apply fix", "test fix"],
-            "verification_steps": ["verify metrics improved", "verify no regression"],
-        }
-        return FIXES.get(rc, default)
-    else:  # task5
-        return {"postmortem": {
-            "root_cause": rc,
-            "affected_components": comp,
-            "prevention_steps": ["add monitoring alerts", "implement automated testing"],
-            "monitoring_additions": ["accuracy degradation alert", "error rate monitor"],
-        }}
+    text = text.lower().replace("_", " ").replace("=", " ").replace(".", " ")
+    words = set(re.sub(r"[^a-z0-9\s]", " ", text).split())
+    words = {w for w in words if not re.fullmatch(r"[0-9]+", w)}
+    return words - STOP
 
 
-# ── JSON extraction ───────────────────────────────────────────────────────────
-def _extract_json(text: str) -> dict:
-    try:
-        clean = text.replace("```json","").replace("```","").strip()
-        return json.loads(clean)
-    except Exception:
-        pass
-    blocks = re.findall(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\}', text, re.DOTALL)
-    for block in reversed(blocks):
-        try:
-            return json.loads(block)
-        except Exception:
-            pass
-    return {}
+def _match_score(agent_step: str, correct_step: str) -> float:
+    """Jaccard similarity. Returns value strictly in (0.001, 0.999)."""
+    if agent_step.strip().lower() == correct_step.strip().lower():
+        return 0.999   # perfect match — never 1.0
+    ak = _keywords(agent_step)
+    ck = _keywords(correct_step)
+    if not ak or not ck:
+        return 0.001   # no keywords — never 0.0
+    j = len(ak & ck) / len(ak | ck)
+    if j >= 0.7: return round(min(0.999, 0.90 + j * 0.09), 4)
+    if j >= 0.5: return round(min(0.999, 0.60 + j * 0.39), 4)
+    if j >= 0.3: return round(max(0.001, j * 1.50), 4)
+    if j > 0.0:  return round(max(0.001, j * 0.80), 4)
+    return 0.001   # no keyword overlap — never 0.0
 
 
-# ── LLM call ─────────────────────────────────────────────────────────────────
-def call_llm(task_id: str, obs: dict) -> dict:
-    if not HF_TOKEN:
-        return _rule_based(task_id, obs)
-    cfg     = obs.get("training_config", {})
-    metrics = obs.get("production_metrics", {})
-    logs    = obs.get("training_logs", [])
-    errors  = obs.get("error_traces", [])
-    deploys = obs.get("deployment_history", [])
-
-    logs_txt = "\n".join(
-        f"Epoch {l.get('epoch')}: loss={l.get('train_loss')} acc={l.get('train_acc')}%"
-        f"{' WARN:'+l['warning'] if l.get('warning') else ''}"
-        f"{' ERR:'+l['error'] if l.get('error') else ''}"
-        for l in logs) or "none"
-    err_txt = "\n".join(f"[{e.get('error_type')}] {e.get('message')}" for e in errors) or "none"
-    dep_txt = "\n".join(f"[{d.get('event_type')}] {d.get('description')}" for d in deploys) or "none"
-
-    context = (
-        f"INCIDENT: {obs.get('alert_summary')}\n"
-        f"MODEL: {cfg.get('architecture')} lr={cfg.get('learning_rate')} opt={cfg.get('optimizer')}\n"
-        f"METRICS: accuracy={metrics.get('accuracy')} error_rate={metrics.get('error_rate')} "
-        f"gpu={metrics.get('gpu_memory_used_gb')}/{metrics.get('gpu_memory_total_gb')}GB\n"
-        f"LOGS:\n{logs_txt}\nERRORS:\n{err_txt}\nDEPLOYMENTS:\n{dep_txt}"
-    )
-    SCHEMAS = {
-        "task1": '{"anomaly_detected":true,"anomaly_type":"nan_loss|gpu_oom|accuracy_drop|data_drift|latency_spike|hallucination_spike|gradient_explosion|memory_leak|loss_spike|none","severity":"low|medium|high|critical"}',
-        "task2": '{"root_cause":"learning_rate_too_high|learning_rate_too_low|overfitting|underfitting|data_drift|quantization_error|prompt_injection|context_overflow|bad_deployment|class_imbalance|gradient_explosion|memory_leak","affected_components":["component"]}',
-        "task3": '{"priority_ranking":["model-name"],"response_team":"ml_team|ai_team|devops_team|all_hands"}',
-        "task4": '{"immediate_steps":["step1"],"root_fix_steps":["step1"],"verification_steps":["step1"]}',
-        "task5": '{"postmortem":{"root_cause":"str","affected_components":["comp"],"prevention_steps":["step"],"monitoring_additions":["monitor"]}}',
-    }
-    try:
-        r = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM},
-                {"role": "user",   "content": f"{context}\n\nRespond ONLY with JSON:\n{SCHEMAS[task_id]}"},
-            ],
-            temperature=0, max_tokens=512,
-        )
-        raw    = r.choices[0].message.content.strip()
-        result = _extract_json(raw)
-        return result if result else _rule_based(task_id, obs)
-    except Exception as e:
-        print(f"[WARN] LLM error ({task_id}): {e}", file=sys.stderr)
-        return _rule_based(task_id, obs)
+def _grade_steps(agent_steps: List[str], correct_steps: List[str], weight: float) -> tuple:
+    """Grade list of steps. Returns (_clamped score, feedback)."""
+    if not agent_steps:
+        return 0.001, "no steps provided"
+    per_step = weight / len(correct_steps)
+    total = 0.0
+    hits = 0
+    for cs in correct_steps:
+        best = max((_match_score(a, cs) for a in agent_steps), default=0.001)
+        total += per_step * best
+        if best >= 0.7:
+            hits += 1
+    return _clamp(total), f"{hits}/{len(correct_steps)} steps matched"
 
 
-# ── Run one task ──────────────────────────────────────────────────────────────
-def run_task(task_id: str, seed: int) -> dict:
-    """Run one full episode. Returns result dict with score."""
-    t0 = time.time()
+# ── Task 1 — Signal Monitor (Easy) ───────────────────────────────────────────
+# Scoring: anomaly_detected(0.20) + anomaly_type(0.50) + severity(0.29)
+# Max = 0.99 → never reaches 1.0
+def grade_task1(action: Action, gt: Dict) -> Reward:
+    bd: Dict[str, float] = {}
+    fb: List[str] = []
 
-    # Reset
-    try:
-        r = requests.post(f"{ENV_URL}/reset",
-                          json={"task_id": task_id, "seed": seed}, timeout=30)
-        r.raise_for_status()
-        obs = r.json()["observation"]
-    except Exception as e:
-        return {"task_id": task_id, "score": 0.5, "error": str(e),
-                "elapsed": round(time.time()-t0, 2)}
+    # anomaly_detected (0.20)
+    bd["anomaly_detected"] = 0.20 if action.anomaly_detected == gt["anomaly_detected"] else 0.001
+    fb.append(f"{'✅' if action.anomaly_detected == gt['anomaly_detected'] else '❌'} anomaly_detected")
 
-    # Get action
-    action = call_llm(task_id, obs)
+    # anomaly_type (0.50)
+    bd["anomaly_type"] = 0.50 if action.anomaly_type == gt["anomaly_type"] else 0.001
+    fb.append(f"{'✅' if action.anomaly_type == gt['anomaly_type'] else '❌'} type: {action.anomaly_type} vs {gt['anomaly_type']}")
 
-    # Step
-    try:
-        r = requests.post(f"{ENV_URL}/step",
-                          json={"action": action}, timeout=30)
-        r.raise_for_status()
-        res = r.json()
-        return {
-            "task_id":  task_id,
-            "score":    res["reward"]["score"],
-            "feedback": res["reward"]["feedback"],
-            "elapsed":  round(time.time()-t0, 2),
-        }
-    except Exception as e:
-        return {"task_id": task_id, "score": 0.5, "error": str(e),
-                "elapsed": round(time.time()-t0, 2)}
-
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["pretty", "api"], default="pretty")
-    parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
-
-    seed    = args.seed
-    results = {}
-
-    # ── Required [START] log ──────────────────────────────────────────────────
-    print(json.dumps({
-        "type":        "START",
-        "environment": "SYNAPSE",
-        "version":     "5.0.0",
-        "model":       MODEL_NAME if HF_TOKEN else "rule_based_fallback",
-        "seed":        seed,
-        "tasks":       TASK_IDS,
-    }), flush=True)
-
-    # ── Run each task with [STEP] logs ────────────────────────────────────────
-    for task_id in TASK_IDS:
-        result = run_task(task_id, seed=seed)
-        score  = result["score"]
-        results[task_id] = score
-
-        # Required [STEP] log for each task
-        print(json.dumps({
-            "type":     "STEP",
-            "task_id":  task_id,
-            "score":    score,
-            "elapsed":  result.get("elapsed", 0),
-            "feedback": result.get("feedback", result.get("error", "")),
-        }), flush=True)
-
-    # ── Required [END] log ────────────────────────────────────────────────────
-    avg = round(sum(results.values()) / len(results), 4)
-    print(json.dumps({
-        "type":    "END",
-        "scores":  results,
-        "average": avg,
-        "model":   MODEL_NAME if HF_TOKEN else "rule_based_fallback",
-        "seed":    seed,
-    }), flush=True)
-
-    # Final JSON line for /baseline endpoint
-    final = {**results, "average": avg, "seed": seed,
-             "model_used": MODEL_NAME if HF_TOKEN else "rule_based_fallback"}
-    if args.mode == "api":
-        print(json.dumps(final), flush=True)
+    # severity (0.29 — not 0.30, keeps max sum at 0.99 never 1.0)
+    SEV = ["low", "medium", "high", "critical"]
+    gs, es = action.severity, gt["severity"]
+    if gs == es:
+        bd["severity"] = 0.29
+        fb.append(f"✅ severity: {gs}")
+    elif gs in SEV and es in SEV and abs(SEV.index(gs) - SEV.index(es)) == 1:
+        bd["severity"] = 0.15
+        fb.append(f"⚠️ adjacent severity: {gs} vs {es}")
     else:
-        print(f"\n  Average: {avg:.4f}", file=sys.stderr)
+        bd["severity"] = 0.001
+        fb.append(f"❌ severity: {gs} vs {es}")
+
+    # Clamp EVERY breakdown value individually, then clamp final score
+    bd = {k: _clamp(v) for k, v in bd.items()}
+    return Reward(score=_clamp(sum(bd.values())), breakdown=bd, feedback=" | ".join(fb))
 
 
-if __name__ == "__main__":
-    main()
+# ── Task 2 — Root Cause Engine (Medium) ──────────────────────────────────────
+# Scoring: root_cause(0.60) + components(up to 0.39, never negative)
+# Max = 0.99 → never reaches 1.0
+def grade_task2(action: Action, gt: Dict) -> Reward:
+    bd: Dict[str, float] = {}
+    fb: List[str] = []
+
+    # root_cause (0.60)
+    bd["root_cause"] = 0.60 if action.root_cause == gt["root_cause"] else 0.001
+    fb.append(
+        f"{'✅' if action.root_cause == gt['root_cause'] else '❌'} "
+        f"root_cause: {action.root_cause} vs {gt['root_cause']}"
+    )
+
+    # affected_components (max 0.39 — not 0.40 to avoid sum=1.0)
+    # max(0.001,...) ensures breakdown value NEVER equals exactly 0.0
+    # No negative penalty values — those would also fail the validator
+    correct_set = set(gt["affected_components"])
+    agent_set = set(action.affected_components or [])
+    if not agent_set:
+        bd["components"] = 0.001
+        fb.append("❌ no affected_components provided")
+    else:
+        hits = len(correct_set & agent_set)
+        wrong = len(agent_set - correct_set)
+        raw = (hits / len(correct_set)) * 0.39
+        # Apply wrong-component penalty inside, but clamp to [0.001, 0.39]
+        penalty = min(wrong * 0.05, 0.10)
+        net = max(0.001, round(raw - penalty, 4))
+        bd["components"] = _clamp(net)
+        fb.append(f"{'✅' if hits == len(correct_set) else '⚠️'} components: {hits}/{len(correct_set)}"
+                  + (f" (-{penalty:.2f} wrong penalty)" if penalty > 0 else ""))
+
+    bd = {k: _clamp(v) for k, v in bd.items()}
+    return Reward(score=_clamp(sum(bd.values())), breakdown=bd, feedback=" | ".join(fb))
+
+
+# ── Task 3 — Priority Classifier (Medium-Hard) ───────────────────────────────
+# Scoring: response_team only
+# 0.999 (correct) / 0.3 (adjacent) / 0.001 (wrong) — all strictly in (0,1)
+def grade_task3(action: Action, gt: Dict) -> Reward:
+    TEAMS = ["ml_team", "ai_team", "devops_team", "all_hands"]
+    correct_team = gt["response_team"]
+    agent_team   = action.response_team
+
+    if agent_team == correct_team:
+        return Reward(
+            score=0.999,
+            breakdown={"response_team": 0.999},
+            feedback=f"✅ Correct team: {agent_team}",
+        )
+    elif agent_team in TEAMS and correct_team in TEAMS:
+        dist = abs(TEAMS.index(agent_team) - TEAMS.index(correct_team))
+        partial = _clamp(0.3 if dist == 1 else 0.001)
+        return Reward(
+            score=partial,
+            breakdown={"response_team": partial},
+            feedback=f"{'⚠️ Adjacent' if dist == 1 else '❌ Wrong'} team: {agent_team} vs {correct_team}",
+        )
+    else:
+        return Reward(
+            score=0.001,
+            breakdown={"response_team": 0.001},
+            feedback=f"❌ Wrong team: got {agent_team}, expected {correct_team}",
+        )
+
+
+# ── Task 4 — Remediation Planner (Hard) ──────────────────────────────────────
+# Scoring: immediate(0.35) + root_fix(0.39) + verification(0.24) = max 0.98
+# Each phase goes through _grade_steps → _clamp individually
+def grade_task4(action: Action, gt: Dict) -> Reward:
+    bd: Dict[str, float] = {}
+    fb: List[str] = []
+
+    phases = [
+        ("immediate_steps",    action.immediate_steps,    gt["immediate_steps"],    0.35),
+        ("root_fix_steps",     action.root_fix_steps,     gt["root_fix_steps"],     0.39),
+        ("verification_steps", action.verification_steps, gt["verification_steps"], 0.24),
+    ]
+    for pname, asteps, csteps, w in phases:
+        if not asteps:
+            bd[pname] = 0.001
+            fb.append(f"❌ missing {pname}")
+        else:
+            s, msg = _grade_steps(asteps, csteps, w)
+            bd[pname] = s   # already _clamped by _grade_steps
+            fb.append(f"{pname}: {msg}")
+
+    # Clamp each breakdown value AND final score
+    bd = {k: _clamp(v) for k, v in bd.items()}
+    return Reward(score=_clamp(sum(bd.values())), breakdown=bd, feedback=" | ".join(fb))
+
+
+# ── Task 5 — Post-Mortem Analyst (Very Hard) ─────────────────────────────────
+# Scoring: root_cause(0.40) + components(0.19) + prevention(0.19) + monitoring(0.19)
+# Max = 0.97 → never reaches 1.0
+# max(0.001,...) on EVERY component prevents breakdown values of exactly 0.0
+def grade_task5(action: Action, gt: Dict) -> Reward:
+    bd: Dict[str, float] = {}
+    fb: List[str] = []
+
+    if not action.postmortem:
+        return Reward(
+            score=0.001,
+            breakdown={"postmortem": 0.001},
+            feedback="❌ No postmortem provided",
+        )
+    pm = action.postmortem
+
+    # root_cause (0.40)
+    bd["root_cause"] = 0.40 if pm.get("root_cause") == gt["root_cause"] else 0.001
+    fb.append(
+        f"{'✅' if bd['root_cause'] > 0.01 else '❌'} "
+        f"root_cause: {pm.get('root_cause')} vs {gt['root_cause']}"
+    )
+
+    # components (max 0.19) — max(0.001,...) prevents EXACTLY 0.0
+    cc = set(gt["affected_components"])
+    ac = set(pm.get("affected_components") or [])
+    if cc and ac:
+        overlap = len(cc & ac) / len(cc)
+        bd["components"] = max(0.001, round(0.19 * overlap, 4))
+        fb.append(f"{'✅' if overlap == 1.0 else '⚠️'} components: {len(cc&ac)}/{len(cc)}")
+    else:
+        bd["components"] = 0.001
+        fb.append("❌ missing components")
+
+    # prevention_steps (max 0.19)
+    cprev = list(gt["prevention_steps"])
+    aprev = list(pm.get("prevention_steps") or [])
+    if cprev and aprev:
+        s, msg = _grade_steps(aprev, cprev, 0.19)
+        bd["prevention"] = s
+        fb.append(f"prevention: {msg}")
+    else:
+        bd["prevention"] = 0.001
+        fb.append("❌ missing prevention_steps")
+
+    # monitoring_additions (max 0.19)
+    cmon = list(gt["monitoring_additions"])
+    amon = list(pm.get("monitoring_additions") or [])
+    if cmon and amon:
+        s, msg = _grade_steps(amon, cmon, 0.19)
+        bd["monitoring"] = s
+        fb.append(f"monitoring: {msg}")
+    else:
+        bd["monitoring"] = 0.001
+        fb.append("❌ missing monitoring_additions")
+
+    # Clamp every breakdown value AND final score
+    bd = {k: _clamp(v) for k, v in bd.items()}
+    return Reward(score=_clamp(sum(bd.values())), breakdown=bd, feedback=" | ".join(fb))
+
+
+# ── Registry ──────────────────────────────────────────────────────────────────
+GRADERS = {
+    "task1": grade_task1,
+    "task2": grade_task2,
+    "task3": grade_task3,
+    "task4": grade_task4,
+    "task5": grade_task5,
+}
+
+BASELINE_TARGETS = {
+    "task1": 0.85,
+    "task2": 0.70,
+    "task3": 0.80,
+    "task4": 0.55,
+    "task5": 0.45,
+    "average": 0.67,
+}
