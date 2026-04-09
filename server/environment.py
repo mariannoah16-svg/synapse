@@ -1,4 +1,4 @@
-"""
+        """
 SYNAPSE v4.0 - Multi-Turn Investigation Environment
 """
 from __future__ import annotations
@@ -155,7 +155,7 @@ class SynapseEnvironment:
         reward = grader(action, gt)
         if self._step > 1:
             penalty = round(STEP_PENALTY * (self._step - 1), 4)
-            reward.score = round(max(0.0, reward.score - penalty), 4)
+            reward.score = round(max(0.001, reward.score - penalty), 4)
             reward.breakdown["step_penalty"] = -penalty
             reward.feedback += f" | step_penalty -{penalty}"
         self._done = True
