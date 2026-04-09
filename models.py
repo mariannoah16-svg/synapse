@@ -190,4 +190,4 @@ class Reward(BaseModel):
     score: float = Field(description="Overall score 0.0 to 1.0")
     breakdown: Dict[str, float] = Field(description="Per-component scores showing what was right or wrong")
     feedback: str = Field(description="Human-readable explanation of the score")
-    max_possible: float = Field(default=1.0, description="Maximum achievable score")
+    max_possible: float = Field(default=0.999, description="Maximum achievable score (0.999 — strictly less than 1.0 per OpenEnv spec)")
