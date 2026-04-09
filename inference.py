@@ -200,7 +200,7 @@ def run_task(task_id: str, seed: int) -> dict:
         r.raise_for_status()
         obs = r.json()["observation"]
     except Exception as e:
-        return {"task_id": task_id, "score": 0.5, "error": str(e),
+        return {"task_id": task_id, "score": 0.0001, "error": str(e),
                 "elapsed": round(time.time()-t0, 2)}
 
     # Get action
@@ -219,7 +219,7 @@ def run_task(task_id: str, seed: int) -> dict:
             "elapsed":  round(time.time()-t0, 2),
         }
     except Exception as e:
-        return {"task_id": task_id, "score": 0.5, "error": str(e),
+        return {"task_id": task_id, "score": 0.0001, "error": str(e),
                 "elapsed": round(time.time()-t0, 2)}
 
 
@@ -233,44 +233,24 @@ def main():
     seed    = args.seed
     results = {}
 
-    # ── Required [START] log ──────────────────────────────────────────────────
-    print(json.dumps({
-        "type":        "START",
-        "environment": "SYNAPSE",
-        "version":     "5.0.0",
-        "model":       MODEL_NAME if HF_TOKEN else "rule_based_fallback",
-        "seed":        seed,
-        "tasks":       TASK_IDS,
-    }), flush=True)
-
-    # ── Run each task with [STEP] logs ────────────────────────────────────────
+    # ── Run each task with Exact Literal [START] and [STEP] logs ───────────────
     for task_id in TASK_IDS:
+        # REQUIRED BY VALIDATOR: Exact string format, flushed immediately
+        print(f"[START] task={task_id}", flush=True)
+        
         result = run_task(task_id, seed=seed)
         score  = result["score"]
         results[task_id] = score
 
-        # Required [STEP] log for each task
-        print(json.dumps({
-            "type":     "STEP",
-            "task_id":  task_id,
-            "score":    score,
-            "elapsed":  result.get("elapsed", 0),
-            "feedback": result.get("feedback", result.get("error", "")),
-        }), flush=True)
+        # REQUIRED BY VALIDATOR: Exact string format, flushed immediately
+        print(f"[STEP] step=1 reward={score}", flush=True)
+        print(f"[END] task={task_id} score={score} steps=1", flush=True)
 
-    # ── Required [END] log ────────────────────────────────────────────────────
+    # ── Final JSON line for /baseline endpoint (MUST REMAIN JSON) ─────────────
     avg = round(sum(results.values()) / len(results), 4)
-    print(json.dumps({
-        "type":    "END",
-        "scores":  results,
-        "average": avg,
-        "model":   MODEL_NAME if HF_TOKEN else "rule_based_fallback",
-        "seed":    seed,
-    }), flush=True)
-
-    # Final JSON line for /baseline endpoint
     final = {**results, "average": avg, "seed": seed,
              "model_used": MODEL_NAME if HF_TOKEN else "rule_based_fallback"}
+    
     if args.mode == "api":
         print(json.dumps(final), flush=True)
     else:
